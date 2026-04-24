@@ -1,0 +1,8 @@
+.venv/
+.env
+rag_storage/
+__pycache__/
+*.pyc
+.DS_Store
+.streamlit/secrets.toml
+sample_docs/

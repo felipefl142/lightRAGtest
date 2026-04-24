@@ -1,0 +1,34 @@
+[project]
+name = "lightragtest"
+version = "0.1.0"
+description = "LightRAG playground with Ollama + Streamlit chat"
+requires-python = ">=3.11"
+dependencies = [
+    "lightrag-hku[api]>=1.2.0",
+    "streamlit>=1.36",
+    "python-dotenv>=1.0",
+    "requests>=2.32",
+    "beautifulsoup4>=4.12",
+    "nest-asyncio>=1.6",
+    "ollama>=0.3",
+    "numpy>=1.26",
+]
+
+[dependency-groups]
+dev = [
+    "pytest>=8.0",
+    "pytest-asyncio>=0.23",
+    "responses>=0.25",
+]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
+markers = [
+    "smoke: quick sanity checks",
+    "integration: cross-module with stubs",
+    "functional: end-to-end flow with stubs",
+]
+
+[tool.uv]
+package = false

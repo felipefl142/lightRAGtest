@@ -1,0 +1,72 @@
+"""Insert every *.txt in sample_docs/ into LightRAG.
+
+Tracks inserted files via .ingested.json in the working dir so re-runs
+skip docs already indexed. Delete that file (or the whole rag_storage/
+dir) to force a reindex.
+"""
+from __future__ import annotations
+
+import asyncio
+import hashlib
+import json
+import os
+from pathlib import Path
+
+from dotenv import load_dotenv
+
+from rag_core import WORKING_DIR, build_rag
+
+load_dotenv()
+
+DOCS_DIR = Path(os.getenv("SAMPLE_DOCS_DIR", "./sample_docs"))
+LEDGER = Path(WORKING_DIR) / ".ingested.json"
+
+
+def digest(path: Path) -> str:
+    return hashlib.sha256(path.read_bytes()).hexdigest()
+
+
+def load_ledger() -> dict[str, str]:
+    if LEDGER.exists():
+        return json.loads(LEDGER.read_text())
+    return {}
+
+
+def save_ledger(data: dict[str, str]) -> None:
+    LEDGER.parent.mkdir(parents=True, exist_ok=True)
+    LEDGER.write_text(json.dumps(data, indent=2))
+
+
+async def main() -> None:
+    if not DOCS_DIR.exists():
+        raise SystemExit(f"{DOCS_DIR} missing. Run `python fetch_data.py` first.")
+
+    files = sorted(DOCS_DIR.glob("*.txt"))
+    if not files:
+        raise SystemExit(f"No *.txt under {DOCS_DIR}.")
+
+    ledger = load_ledger()
+    pending: list[tuple[Path, str]] = []
+    for f in files:
+        h = digest(f)
+        if ledger.get(f.name) == h:
+            print(f"skip {f.name} (already ingested)")
+            continue
+        pending.append((f, h))
+
+    if not pending:
+        print("Nothing new to ingest.")
+        return
+
+    rag = await build_rag()
+    for path, h in pending:
+        text = path.read_text(encoding="utf-8")
+        print(f"ingest {path.name} ({len(text)} chars)...")
+        await rag.ainsert(text, ids=[path.stem], file_paths=[path.name])
+        ledger[path.name] = h
+        save_ledger(ledger)
+    print("Done.")
+
+
+if __name__ == "__main__":
+    asyncio.run(main())
