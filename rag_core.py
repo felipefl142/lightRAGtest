@@ -16,7 +16,7 @@ from lightrag.utils import EmbeddingFunc
 load_dotenv()
 
 OLLAMA_HOST = os.getenv("OLLAMA_HOST", "http://localhost:11434")
-LLM_MODEL = os.getenv("LLM_MODEL", "gemma4:latest")
+LLM_MODEL = os.getenv("LLM_MODEL", "qwen3.5:4b")
 RERANK_MODEL = os.getenv("RERANK_MODEL", LLM_MODEL)
 EMBED_MODEL = os.getenv("EMBED_MODEL", "nomic-embed-text")
 EMBED_DIM = int(os.getenv("EMBED_DIM", "768"))
@@ -28,7 +28,7 @@ WORKING_DIR = os.getenv("WORKING_DIR", "./rag_storage")
 # on slow local ollama. Concurrency kept low to avoid GPU thrash.
 CHUNK_TOKEN_SIZE = int(os.getenv("CHUNK_TOKEN_SIZE", "800"))
 CHUNK_OVERLAP = int(os.getenv("CHUNK_OVERLAP", "80"))
-MAX_GLEANING = int(os.getenv("MAX_GLEANING", "0"))
+MAX_GLEANING = int(os.getenv("MAX_GLEANING", "1"))
 LLM_MAX_ASYNC = int(os.getenv("LLM_MAX_ASYNC", "2"))
 EMBED_MAX_ASYNC = int(os.getenv("EMBED_MAX_ASYNC", "4"))
 LLM_TIMEOUT = int(os.getenv("LLM_TIMEOUT", "900"))

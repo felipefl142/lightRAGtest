@@ -58,14 +58,19 @@ async def main() -> None:
         print("Nothing new to ingest.")
         return
 
+    total = len(pending)
+    skipped = len(files) - total
+    print(f"{total} pending, {skipped} skipped, {len(files)} total")
+
     rag = await build_rag()
-    for path, h in pending:
+    for i, (path, h) in enumerate(pending, start=1):
         text = path.read_text(encoding="utf-8")
-        print(f"ingest {path.name} ({len(text)} chars)...")
+        print(f"[{i}/{total}] ingest {path.name} ({len(text)} chars)...", flush=True)
         await rag.ainsert(text, ids=[path.stem], file_paths=[path.name])
         ledger[path.name] = h
         save_ledger(ledger)
-    print("Done.")
+        print(f"[{i}/{total}] done {path.name}", flush=True)
+    print(f"Done. {total}/{total} ingested.")
 
 
 if __name__ == "__main__":
