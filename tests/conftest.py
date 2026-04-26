@@ -46,6 +46,7 @@ def fake_rag():
     """Return an AsyncMock shaped like LightRAG used by ingest/eval."""
     rag = MagicMock()
     rag.ainsert = AsyncMock()
+    rag.adelete_by_doc_id = AsyncMock()
     rag.aquery = AsyncMock(return_value="stub answer")
     rag.initialize_storages = AsyncMock()
     return rag
