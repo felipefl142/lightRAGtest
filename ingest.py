@@ -59,7 +59,7 @@ def diff_files(disk: dict[str, str], ledger: dict[str, str]) -> Diff:
     )
 
 
-def format_plan(diff: Diff) -> str:
+def format_plan(diff: Diff, *, dry_run: bool = True) -> str:
     total_changes = len(diff.new) + len(diff.changed) + len(diff.removed)
     lines = [
         "plan:",
@@ -75,7 +75,8 @@ def format_plan(diff: Diff) -> str:
             lines.append(f"  ~ {name}")
         for name in diff.removed:
             lines.append(f"  - {name}")
-    lines.append("(no changes made)")
+    if dry_run:
+        lines.append("(no changes made)")
     return "\n".join(lines)
 
 
@@ -100,7 +101,12 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
 
 
 def scan_disk(docs_dir: Path, pattern: str) -> dict[str, str]:
-    """Return {posix_relpath: sha256} for files matching pattern."""
+    """Return {posix_relpath: sha256} for files matching pattern.
+
+    Doc IDs are derived as ``Path(rel).stem``. Files in different
+    subdirectories that share a stem (e.g. ``a/x.txt`` and ``b/x.txt``)
+    will collide in the LightRAG store. Out of scope for this script.
+    """
     out: dict[str, str] = {}
     for f in sorted(docs_dir.glob(pattern)):
         if not f.is_file():
@@ -132,35 +138,38 @@ async def _apply(
     sem = asyncio.Semaphore(concurrency)
     lock = asyncio.Lock()
     total = len(diff.new) + len(diff.changed) + len(diff.removed)
-    counter = {"done": 0}
+    done = 0
 
     async def run_new(rel: str) -> None:
+        nonlocal done
         async with sem:
             await _insert_file(rag, docs_dir, rel)
             async with lock:
                 ledger[rel] = disk[rel]
                 save_ledger(ledger)
-                counter["done"] += 1
-                print(f"[{counter['done']}/{total}] + {rel}", flush=True)
+                done += 1
+                print(f"[{done}/{total}] + {rel}", flush=True)
 
     async def run_changed(rel: str) -> None:
+        nonlocal done
         async with sem:
             await _delete_file(rag, rel)
             await _insert_file(rag, docs_dir, rel)
             async with lock:
                 ledger[rel] = disk[rel]
                 save_ledger(ledger)
-                counter["done"] += 1
-                print(f"[{counter['done']}/{total}] ~ {rel}", flush=True)
+                done += 1
+                print(f"[{done}/{total}] ~ {rel}", flush=True)
 
     async def run_removed(rel: str) -> None:
+        nonlocal done
         async with sem:
             await _delete_file(rag, rel)
             async with lock:
                 ledger.pop(rel, None)
                 save_ledger(ledger)
-                counter["done"] += 1
-                print(f"[{counter['done']}/{total}] - {rel}", flush=True)
+                done += 1
+                print(f"[{done}/{total}] - {rel}", flush=True)
 
     tasks = (
         [run_new(r) for r in diff.new]
@@ -190,7 +199,7 @@ async def main(argv: list[str] | None = None) -> None:
         print("nothing to ingest")
         return
 
-    print(format_plan(diff).replace("(no changes made)", "").rstrip())
+    print(format_plan(diff, dry_run=False))
     rag = await build_rag()
     await _apply(rag, docs_dir, diff, disk, ledger, args.concurrency)
     print("done.")
