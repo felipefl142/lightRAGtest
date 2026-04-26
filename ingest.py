@@ -1,8 +1,9 @@
-"""Insert every *.txt in sample_docs/ into LightRAG.
+"""Resync sample_docs/ into LightRAG.
 
-Tracks inserted files via .ingested.json in the working dir so re-runs
-skip docs already indexed. Delete that file (or the whole rag_storage/
-dir) to force a reindex.
+Tracks ingested files via .ingested.json keyed by POSIX relpath. On each
+run, computes a diff: new files are inserted, changed files are
+delete-then-inserted, removed files are deleted from the KG. The ledger
+is updated under an asyncio.Lock so partial progress survives crashes.
 """
 from __future__ import annotations
 
@@ -20,7 +21,6 @@ from rag_core import WORKING_DIR, build_rag
 
 load_dotenv()
 
-DOCS_DIR = Path(os.getenv("SAMPLE_DOCS_DIR", "./sample_docs"))
 LEDGER = Path(WORKING_DIR) / ".ingested.json"
 
 
@@ -99,40 +99,101 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     return p.parse_args(argv)
 
 
-async def main() -> None:
-    if not DOCS_DIR.exists():
-        raise SystemExit(f"{DOCS_DIR} missing. Run `python fetch_data.py` first.")
-
-    files = sorted(DOCS_DIR.glob("*.txt"))
-    if not files:
-        raise SystemExit(f"No *.txt under {DOCS_DIR}.")
-
-    ledger = load_ledger()
-    pending: list[tuple[Path, str]] = []
-    for f in files:
-        h = digest(f)
-        if ledger.get(f.name) == h:
-            print(f"skip {f.name} (already ingested)")
+def scan_disk(docs_dir: Path, pattern: str) -> dict[str, str]:
+    """Return {posix_relpath: sha256} for files matching pattern."""
+    out: dict[str, str] = {}
+    for f in sorted(docs_dir.glob(pattern)):
+        if not f.is_file():
             continue
-        pending.append((f, h))
+        rel = f.relative_to(docs_dir).as_posix()
+        out[rel] = digest(f)
+    return out
 
-    if not pending:
-        print("Nothing new to ingest.")
+
+async def _insert_file(rag, docs_dir: Path, rel: str) -> None:
+    path = docs_dir / rel
+    text = path.read_text(encoding="utf-8")
+    doc_id = Path(rel).stem
+    await rag.ainsert(text, ids=[doc_id], file_paths=[rel])
+
+
+async def _delete_file(rag, rel: str) -> None:
+    await rag.adelete_by_doc_id(Path(rel).stem)
+
+
+async def _apply(
+    rag,
+    docs_dir: Path,
+    diff: Diff,
+    disk: dict[str, str],
+    ledger: dict[str, str],
+    concurrency: int,
+) -> None:
+    sem = asyncio.Semaphore(concurrency)
+    lock = asyncio.Lock()
+    total = len(diff.new) + len(diff.changed) + len(diff.removed)
+    counter = {"done": 0}
+
+    async def run_new(rel: str) -> None:
+        async with sem:
+            await _insert_file(rag, docs_dir, rel)
+            async with lock:
+                ledger[rel] = disk[rel]
+                save_ledger(ledger)
+                counter["done"] += 1
+                print(f"[{counter['done']}/{total}] + {rel}", flush=True)
+
+    async def run_changed(rel: str) -> None:
+        async with sem:
+            await _delete_file(rag, rel)
+            await _insert_file(rag, docs_dir, rel)
+            async with lock:
+                ledger[rel] = disk[rel]
+                save_ledger(ledger)
+                counter["done"] += 1
+                print(f"[{counter['done']}/{total}] ~ {rel}", flush=True)
+
+    async def run_removed(rel: str) -> None:
+        async with sem:
+            await _delete_file(rag, rel)
+            async with lock:
+                ledger.pop(rel, None)
+                save_ledger(ledger)
+                counter["done"] += 1
+                print(f"[{counter['done']}/{total}] - {rel}", flush=True)
+
+    tasks = (
+        [run_new(r) for r in diff.new]
+        + [run_changed(r) for r in diff.changed]
+        + [run_removed(r) for r in diff.removed]
+    )
+    if tasks:
+        await asyncio.gather(*tasks)
+
+
+async def main(argv: list[str] | None = None) -> None:
+    args = parse_args(argv)
+    docs_dir: Path = args.docs_dir
+
+    if not docs_dir.exists():
+        raise SystemExit(f"{docs_dir} missing. Run `python fetch_data.py` first.")
+
+    disk = scan_disk(docs_dir, args.pattern)
+    ledger = load_ledger()
+    diff = diff_files(disk, ledger)
+
+    if args.dry_run:
+        print(format_plan(diff))
         return
 
-    total = len(pending)
-    skipped = len(files) - total
-    print(f"{total} pending, {skipped} skipped, {len(files)} total")
+    if not (diff.new or diff.changed or diff.removed):
+        print("nothing to ingest")
+        return
 
+    print(format_plan(diff).replace("(no changes made)", "").rstrip())
     rag = await build_rag()
-    for i, (path, h) in enumerate(pending, start=1):
-        text = path.read_text(encoding="utf-8")
-        print(f"[{i}/{total}] ingest {path.name} ({len(text)} chars)...", flush=True)
-        await rag.ainsert(text, ids=[path.stem], file_paths=[path.name])
-        ledger[path.name] = h
-        save_ledger(ledger)
-        print(f"[{i}/{total}] done {path.name}", flush=True)
-    print(f"Done. {total}/{total} ingested.")
+    await _apply(rag, docs_dir, diff, disk, ledger, args.concurrency)
+    print("done.")
 
 
 if __name__ == "__main__":
