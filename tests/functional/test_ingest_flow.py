@@ -34,15 +34,20 @@ def test_ingest_skips_already_ingested(tmp_path, monkeypatch):
 
 @pytest.mark.functional
 def test_ingest_reingests_when_content_changes(tmp_path, monkeypatch):
+    from unittest.mock import MagicMock
+
     docs = tmp_path / "docs"
     docs.mkdir()
     f = docs / "a.txt"
     f.write_text("v1")
     monkeypatch.setattr(ingest, "LEDGER", tmp_path / "led.json")
 
+    manager = MagicMock()
     fake = AsyncMock()
     fake.ainsert = AsyncMock()
     fake.adelete_by_doc_id = AsyncMock()
+    manager.attach_mock(fake.ainsert, "ainsert")
+    manager.attach_mock(fake.adelete_by_doc_id, "adelete_by_doc_id")
     monkeypatch.setattr(ingest, "build_rag", AsyncMock(return_value=fake))
 
     asyncio.run(ingest.main(_argv(str(docs))))
@@ -52,6 +57,13 @@ def test_ingest_reingests_when_content_changes(tmp_path, monkeypatch):
     assert fake.ainsert.await_count == 2
     assert fake.adelete_by_doc_id.await_count == 1
     fake.adelete_by_doc_id.assert_awaited_with("a")
+
+    names = [c[0] for c in manager.mock_calls]
+    delete_idx = names.index("adelete_by_doc_id")
+    second_insert_idx = [i for i, n in enumerate(names) if n == "ainsert"][1]
+    assert delete_idx < second_insert_idx, (
+        f"delete must come before re-insert: {names}"
+    )
 
 
 @pytest.mark.functional
@@ -140,7 +152,7 @@ def test_ingest_concurrency_runs_inserts_in_parallel(tmp_path, monkeypatch):
     asyncio.run(ingest.main(_argv(str(docs), "--concurrency", "3")))
 
     assert fake.ainsert.await_count == 4
-    assert in_flight["max"] >= 2  # observed overlap
+    assert in_flight["max"] >= 3  # all permitted slots in use
 
 
 @pytest.mark.functional

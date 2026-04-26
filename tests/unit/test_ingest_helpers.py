@@ -109,3 +109,29 @@ def test_parse_args_concurrency_must_be_positive():
     import pytest
     with pytest.raises(SystemExit):
         ingest.parse_args(["--concurrency", "0"])
+
+
+def test_scan_disk_returns_relpath_keyed_hashes(tmp_path):
+    (tmp_path / "a.txt").write_text("alpha")
+    (tmp_path / "b.txt").write_text("beta")
+    (tmp_path / "sub").mkdir()
+    (tmp_path / "sub" / "c.txt").write_text("gamma")
+
+    out = ingest.scan_disk(tmp_path, "*.txt")
+    assert set(out) == {"a.txt", "b.txt"}
+    import hashlib
+    assert out["a.txt"] == hashlib.sha256(b"alpha").hexdigest()
+
+
+def test_scan_disk_skips_directories_matching_pattern(tmp_path):
+    (tmp_path / "a.txt").write_text("alpha")
+    (tmp_path / "dir.txt").mkdir()  # directory ending in .txt
+    out = ingest.scan_disk(tmp_path, "*.txt")
+    assert set(out) == {"a.txt"}
+
+
+def test_scan_disk_recursive_glob_uses_posix_relpaths(tmp_path):
+    (tmp_path / "sub").mkdir()
+    (tmp_path / "sub" / "c.txt").write_text("gamma")
+    out = ingest.scan_disk(tmp_path, "**/*.txt")
+    assert "sub/c.txt" in out
