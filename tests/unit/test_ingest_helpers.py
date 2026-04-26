@@ -47,3 +47,30 @@ def test_diff_files_sorted_output():
 def test_diff_files_empty_inputs():
     diff = ingest.diff_files({}, {})
     assert diff.new == diff.changed == diff.removed == diff.unchanged == []
+
+
+def test_format_plan_counts_only_when_large():
+    diff = ingest.Diff(
+        new=[f"n{i}.txt" for i in range(15)],
+        changed=[f"c{i}.txt" for i in range(10)],
+        removed=[],
+        unchanged=[],
+    )
+    out = ingest.format_plan(diff)
+    assert "add:    15" in out
+    assert "update: 10" in out
+    assert "delete: 0" in out
+    assert "skip:   0" in out
+    assert "n0.txt" not in out  # too many to list
+
+
+def test_format_plan_lists_files_when_small():
+    diff = ingest.Diff(
+        new=["a.txt"], changed=["b.txt"], removed=["c.txt"], unchanged=["d.txt"]
+    )
+    out = ingest.format_plan(diff)
+    assert "add:    1" in out
+    assert "  + a.txt" in out
+    assert "  ~ b.txt" in out
+    assert "  - c.txt" in out
+    assert "(no changes made)" in out

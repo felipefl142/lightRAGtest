@@ -58,6 +58,26 @@ def diff_files(disk: dict[str, str], ledger: dict[str, str]) -> Diff:
     )
 
 
+def format_plan(diff: Diff) -> str:
+    total_changes = len(diff.new) + len(diff.changed) + len(diff.removed)
+    lines = [
+        "plan:",
+        f"  add:    {len(diff.new)} files",
+        f"  update: {len(diff.changed)} files",
+        f"  delete: {len(diff.removed)} files",
+        f"  skip:   {len(diff.unchanged)} files",
+    ]
+    if total_changes <= 20:
+        for name in diff.new:
+            lines.append(f"  + {name}")
+        for name in diff.changed:
+            lines.append(f"  ~ {name}")
+        for name in diff.removed:
+            lines.append(f"  - {name}")
+    lines.append("(no changes made)")
+    return "\n".join(lines)
+
+
 async def main() -> None:
     if not DOCS_DIR.exists():
         raise SystemExit(f"{DOCS_DIR} missing. Run `python fetch_data.py` first.")
