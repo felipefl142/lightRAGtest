@@ -10,6 +10,7 @@ import asyncio
 import hashlib
 import json
 import os
+from dataclasses import dataclass
 from pathlib import Path
 
 from dotenv import load_dotenv
@@ -35,6 +36,26 @@ def load_ledger() -> dict[str, str]:
 def save_ledger(data: dict[str, str]) -> None:
     LEDGER.parent.mkdir(parents=True, exist_ok=True)
     LEDGER.write_text(json.dumps(data, indent=2))
+
+
+@dataclass(frozen=True)
+class Diff:
+    new: list[str]
+    changed: list[str]
+    removed: list[str]
+    unchanged: list[str]
+
+
+def diff_files(disk: dict[str, str], ledger: dict[str, str]) -> Diff:
+    disk_keys = set(disk)
+    ledger_keys = set(ledger)
+    common = disk_keys & ledger_keys
+    return Diff(
+        new=sorted(disk_keys - ledger_keys),
+        changed=sorted(k for k in common if disk[k] != ledger[k]),
+        removed=sorted(ledger_keys - disk_keys),
+        unchanged=sorted(k for k in common if disk[k] == ledger[k]),
+    )
 
 
 async def main() -> None:
