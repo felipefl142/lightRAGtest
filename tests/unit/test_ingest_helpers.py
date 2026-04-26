@@ -74,3 +74,38 @@ def test_format_plan_lists_files_when_small():
     assert "  ~ b.txt" in out
     assert "  - c.txt" in out
     assert "(no changes made)" in out
+
+
+def test_parse_args_defaults(monkeypatch):
+    monkeypatch.delenv("SAMPLE_DOCS_DIR", raising=False)
+    args = ingest.parse_args([])
+    assert str(args.docs_dir) == "sample_docs"
+    assert args.pattern == "*.txt"
+    assert args.dry_run is False
+    assert args.concurrency == 1
+
+
+def test_parse_args_env_override_for_docs_dir(monkeypatch):
+    monkeypatch.setenv("SAMPLE_DOCS_DIR", "/tmp/elsewhere")
+    args = ingest.parse_args([])
+    assert str(args.docs_dir) == "/tmp/elsewhere"
+
+
+def test_parse_args_explicit_flags(monkeypatch):
+    monkeypatch.delenv("SAMPLE_DOCS_DIR", raising=False)
+    args = ingest.parse_args([
+        "--docs-dir", "/x",
+        "--pattern", "**/*.md",
+        "--dry-run",
+        "--concurrency", "4",
+    ])
+    assert str(args.docs_dir) == "/x"
+    assert args.pattern == "**/*.md"
+    assert args.dry_run is True
+    assert args.concurrency == 4
+
+
+def test_parse_args_concurrency_must_be_positive():
+    import pytest
+    with pytest.raises(SystemExit):
+        ingest.parse_args(["--concurrency", "0"])

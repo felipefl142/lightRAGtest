@@ -6,6 +6,7 @@ dir) to force a reindex.
 """
 from __future__ import annotations
 
+import argparse
 import asyncio
 import hashlib
 import json
@@ -76,6 +77,26 @@ def format_plan(diff: Diff) -> str:
             lines.append(f"  - {name}")
     lines.append("(no changes made)")
     return "\n".join(lines)
+
+
+def _positive_int(raw: str) -> int:
+    n = int(raw)
+    if n < 1:
+        raise argparse.ArgumentTypeError("must be >= 1")
+    return n
+
+
+def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
+    p = argparse.ArgumentParser(description="Resync sample_docs into LightRAG.")
+    p.add_argument(
+        "--docs-dir",
+        type=Path,
+        default=Path(os.getenv("SAMPLE_DOCS_DIR", "sample_docs")),
+    )
+    p.add_argument("--pattern", default="*.txt")
+    p.add_argument("--dry-run", action="store_true")
+    p.add_argument("--concurrency", type=_positive_int, default=1)
+    return p.parse_args(argv)
 
 
 async def main() -> None:
